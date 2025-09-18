@@ -19,12 +19,23 @@ func main() {
 	defer conn.Close()
 	fmt.Println("Peril game server connected to RabbitMQ!")
 
-	routingKey := fmt.Sprintf("%s.*", routing.GameLogSlug)
-	ch, _, err := pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, routingKey, pubsub.SimpleQueueDurable)
+	publishCh, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("could not create channel to RabbitMQ: %v", err)
+		log.Fatalf("could not create channel: %v", err)
 	}
-	defer ch.Close()
+	defer publishCh.Close()
+
+	err = pubsub.SubscribeGob(
+		conn,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		fmt.Sprintf("%s.*", routing.GameLogSlug),
+		pubsub.SimpleQueueDurable,
+		handlerLogs(),
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe for logs: %v", err)
+	}
 
 	gamelogic.PrintServerHelp()
 	for {
@@ -37,7 +48,7 @@ func main() {
 		case "pause":
 			fmt.Println("Publishing paused game state")
 			err = pubsub.PublishJSON(
-				ch,
+				publishCh,
 				routing.ExchangePerilDirect,
 				routing.PauseKey,
 				routing.PlayingState{
@@ -50,7 +61,7 @@ func main() {
 		case "resume":
 			fmt.Println("Publishing resumes game state")
 			err = pubsub.PublishJSON(
-				ch,
+				publishCh,
 				routing.ExchangePerilDirect,
 				routing.PauseKey,
 				routing.PlayingState{

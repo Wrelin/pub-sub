@@ -26,7 +26,16 @@ func DeclareAndBind(
 	isDurableQueue := queueType == SimpleQueueDurable
 	isTransientQueue := queueType == SimpleQueueTransient
 
-	queue, err := ch.QueueDeclare(queueName, isDurableQueue, isTransientQueue, isTransientQueue, false, nil)
+	queue, err := ch.QueueDeclare(
+		queueName,
+		isDurableQueue,
+		isTransientQueue,
+		isTransientQueue,
+		false,
+		amqp.Table{
+			"x-dead-letter-exchange": "peril_dlx",
+		},
+	)
 	if err != nil {
 		return ch, queue, err
 	}

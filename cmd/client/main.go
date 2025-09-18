@@ -7,6 +7,8 @@ import (
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"log"
+	"strconv"
+	"time"
 )
 
 func main() {
@@ -22,6 +24,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not create channel: %v", err)
 	}
+	defer publishCh.Close()
 
 	username, err := gamelogic.ClientWelcome()
 	if err != nil {
@@ -39,17 +42,34 @@ func main() {
 		handlerPause(gameState),
 	)
 
+	if err != nil {
+		log.Fatalf("could not subscribe pause: %v", err)
+	}
+
 	err = pubsub.SubscribeJSON(
 		conn,
 		routing.ExchangePerilTopic,
 		fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, username),
 		fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, "*"),
 		pubsub.SimpleQueueTransient,
-		handlerMove(gameState),
+		handlerMove(gameState, publishCh),
 	)
 
 	if err != nil {
-		log.Fatalf("could not subscribe json: %v", err)
+		log.Fatalf("could not subscribe move: %v", err)
+	}
+
+	err = pubsub.SubscribeJSON(
+		conn,
+		routing.ExchangePerilTopic,
+		routing.WarRecognitionsPrefix,
+		fmt.Sprintf("%s.%s", routing.WarRecognitionsPrefix, username),
+		pubsub.SimpleQueueDurable,
+		handlerWar(gameState, publishCh),
+	)
+
+	if err != nil {
+		log.Fatalf("could not subscribe war: %v", err)
 	}
 
 	for {
@@ -81,12 +101,34 @@ func main() {
 				move,
 			)
 			if err != nil {
-				log.Printf("could not publish game state: %v", err)
+				fmt.Printf("could not publish game state: %v", err)
 			}
 
 			fmt.Println("Successfully moved")
 		case "spam":
-			fmt.Println("Spamming not allowed yet!")
+			if len(input) < 2 {
+				continue
+			}
+			fmt.Println("Spam logs start")
+
+			num, err := strconv.Atoi(input[1])
+			if err != nil {
+				fmt.Printf("could not convert str to int: %v", err)
+			}
+
+			for i := 0; i < num; i++ {
+				gameLog := routing.GameLog{
+					CurrentTime: time.Now(),
+					Message:     gamelogic.GetMaliciousLog(),
+					Username:    username,
+				}
+
+				err = pubsub.PublishGameLog(publishCh, gameLog)
+				if err != nil {
+					fmt.Printf("could not publish malicious log: %v", err)
+				}
+			}
+			fmt.Println("Spam logs end")
 		case "status":
 			fmt.Println("Game status:")
 			gameState.CommandStatus()

@@ -1,31 +1,26 @@
 package pubsub
 
 import (
-	"encoding/json"
+	"bytes"
+	"encoding/gob"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type Acktype int8
-
-const (
-	Ack Acktype = iota
-	NackRequeue
-	NackDiscard
-)
-
-func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
+func PublishGob[T any](ch *amqp.Channel, exchange, key string, val T) error {
 	marshaller := func(obj T) ([]byte, string, error) {
-		data, err := json.Marshal(val)
+		var b bytes.Buffer
+		enc := gob.NewEncoder(&b)
+		err := enc.Encode(val)
 		if err != nil {
 			return []byte{}, "", err
 		}
-		return data, "application/json", nil
+		return b.Bytes(), "application/gob", nil
 	}
 
 	return publish(ch, exchange, key, val, marshaller)
 }
 
-func SubscribeJSON[T any](
+func SubscribeGob[T any](
 	conn *amqp.Connection,
 	exchange,
 	queueName,
@@ -34,8 +29,11 @@ func SubscribeJSON[T any](
 	handler func(T) Acktype,
 ) error {
 	unmarshaller := func(data []byte) (T, error) {
+		b := bytes.NewBuffer(data)
 		var obj T
-		err := json.Unmarshal(data, &obj)
+
+		dec := gob.NewDecoder(b)
+		err := dec.Decode(&obj)
 		return obj, err
 	}
 
